@@ -40,22 +40,48 @@ function consolidateRecipeProperties(recipe: Record<string, any>): IRecipe {
 
 export interface ConsilidatedRecipe extends ReturnType<typeof consolidateRecipeProperties> {}
 
-function prettifyRecipe(recipe: Recipe, url: string) {
+function prettifyRecipe(recipe: Recipe, url: string, ogImage?: string): ConsilidatedRecipe {
   const transformedRecipe: Record<string, any> = {}
   const consolidatedRecipe = consolidateRecipeProperties(recipe)
 
-  transformedRecipe.url = recipe.url?.toString() || (isValidHttpUrl(url) ? url : undefined)
+  // Assign the URL
+  transformedRecipe.url
+    = recipe.url?.toString() || (isValidHttpUrl(url) ? url : undefined)
 
+  // Transform each property using the transformer map
   Object.entries(consolidatedRecipe).forEach(([key, value]) => {
     const propertyTransformer = propertyTransformerMap[key as keyof typeof propertyTransformerMap]
-    if (value)
+    if (value && propertyTransformer)
       transformedRecipe[key] = propertyTransformer(value)
   })
+
+  // If the image exists, check its resolution
+  if (transformedRecipe.image) {
+    const dimensionPattern = /v-w-(\d+)-h-(\d+)/
+    const match = transformedRecipe.image.match(dimensionPattern)
+    if (match) {
+      const width = Number.parseInt(match[1], 10)
+      const height = Number.parseInt(match[2], 10)
+      // If either width or height is less than 500px, use ogImage
+      if (width < 500 || height < 500) {
+        if (ogImage)
+          transformedRecipe.image = ogImage
+      }
+    }
+    else {
+      // If no dimension pattern is found, fallback to ogImage
+      if (ogImage)
+        transformedRecipe.image = ogImage
+    }
+  }
 
   return transformedRecipe as ConsilidatedRecipe
 }
 
-export default async function getRecipeData(input: string | Partial<Options>, inputOptions: Partial<Options> = {}) {
+export default async function getRecipeData(
+  input: string | Partial<Options>,
+  inputOptions: Partial<Options> = {},
+): Promise<ConsilidatedRecipe> {
   let siteUrl: string, html: string, recipe: unknown
 
   if (typeof input === 'object') {
@@ -85,13 +111,16 @@ export default async function getRecipeData(input: string | Partial<Options>, in
 
     if (options.html)
       html = options.html as string
-
     else
       throw new Error(message)
   }
 
+  const $ = cheerio.load(html)
+
+  // Extract og:image
+  const ogImage = $('meta[property="og:image"]').attr('content')
+
   try {
-    const $ = cheerio.load(html)
     const tags = $('script[type="application/ld+json"]')
     if (tags.length > 0) {
       for (let i = 0; i < tags.length; i++) {
@@ -137,12 +166,15 @@ export default async function getRecipeData(input: string | Partial<Options>, in
     recipe = recipeData.properties
   }
 
-  const prettifiedRecipe = prettifyRecipe(recipe as Recipe, siteUrl)
+  const prettifiedRecipe = prettifyRecipe(recipe as Recipe, siteUrl, ogImage)
   if (prettifiedRecipe !== undefined) {
-    const response = validate({ name: prettifiedRecipe.name, recipeIngredients: prettifiedRecipe.recipeIngredients }, schema)
+    const response = validate(prettifiedRecipe, schema)
     if (!response.valid)
-      throw new Error('Recipe is not valid')
+      throw new Error(`Recipe is not valid: ${response.errors.map(e => e.message).join(', ')}`)
 
     return prettifiedRecipe
+  }
+  else {
+    throw new Error('Recipe data could not be prettified')
   }
 }

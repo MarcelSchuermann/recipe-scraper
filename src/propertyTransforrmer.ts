@@ -1,69 +1,89 @@
-import { parse } from 'iso8601-duration';
-import { MATCH_HTML_TAGS, MATCH_LINE_BREAK, MATCH_MULTI_SPACE } from './utils';
+import { parse } from 'iso8601-duration'
+import { MATCH_HTML_TAGS, MATCH_LINE_BREAK, MATCH_MULTI_SPACE } from './utils'
 
 interface ImageObject {
-  url?: string;
-  width?: number;
-  height?: number;
-  [key: string]: any;
+  url?: string
+  width?: number
+  height?: number
+  [key: string]: any
 }
 
 // Function to adjust image URL dimensions
 function getHighResolutionImageUrl(url: string): string {
-  // Regular expression to match the dimension parameters in the URL
-  const dimensionPattern = /(v-w-\d+-h-\d+)/;
-  const matches = url.match(dimensionPattern);
+  // // Regular expression to match the dimension parameters in the URL
+  // const dimensionPattern = /(v-w-\d+-h-\d+)/;
+  // const matches = url.match(dimensionPattern);
 
-  if (matches && matches[0]) {
-    // Replace with desired dimensions, e.g., 1600x1200
-    const highResDimensions = 'v-w-1600-h-1200';
-    const highResUrl = url.replace(dimensionPattern, highResDimensions);
-    return highResUrl;
-  }
+  // if (matches && matches[0]) {
+  //   // Replace with desired dimensions, e.g., 1600x1200
+  //   const highResDimensions = 'v-w-1600-h-1200';
+  //   const highResUrl = url.replace(dimensionPattern, highResDimensions);
+  //   return highResUrl;
+  // }
 
-  // If dimensions not found, return original URL
-  return url;
+  // If dimensions not found, return empty string instead of original URL
+  return ''
 }
 
 export function transformImage(
-  value: string | ImageObject | (string | ImageObject)[]
+  value: string | ImageObject | (string | ImageObject)[],
 ): string {
   if (typeof value === 'string') {
     // Adjust the URL to get high-resolution image
-    return getHighResolutionImageUrl(value);
+    // const highResUrl = getHighResolutionImageUrl(value);
+    const highResUrl = ''
+    if (highResUrl !== '')
+      return highResUrl
+
+    return value
   }
 
   if (Array.isArray(value)) {
     // Check if the array contains strings (image URLs)
     if (typeof value[0] === 'string') {
       // Return the first image URL, adjusted for high resolution
-      return getHighResolutionImageUrl(value[0] as string);
+      const highResUrl = ''
+      // const highResUrl = getHighResolutionImageUrl(value[0] as string);
+      if (highResUrl !== '')
+        return highResUrl
+
+      return value[0] as string
     }
 
     // If the array contains image objects
-    const images = value as ImageObject[];
+    const images = value as ImageObject[]
     // Sort images by resolution in descending order
     const sortedImages = images.sort((a, b) => {
-      const resA = (a.width || 0) * (a.height || 0);
-      const resB = (b.width || 0) * (b.height || 0);
-      return resB - resA;
-    });
+      const resA = (a.width || 0) * (a.height || 0)
+      const resB = (b.width || 0) * (b.height || 0)
+      return resB - resA
+    })
 
     // Return the URL of the highest resolution image
-    const highestResImage = sortedImages.find((img) => img.url);
+    const highestResImage = sortedImages.find(img => img.url)
     if (highestResImage && highestResImage.url) {
       // Adjust the URL to get high-resolution image
-      return getHighResolutionImageUrl(highestResImage.url);
+      // const highResUrl = getHighResolutionImageUrl(highestResImage.url);
+      const highResUrl = ''
+      if (highResUrl !== '')
+        return highResUrl
+
+      return highestResImage.url
     }
-    return '';
+    // If no high-resolution image URL found, return empty string
+    return ''
   }
 
   if (typeof value === 'object' && value.url) {
     // Adjust the URL to get high-resolution image
-    return getHighResolutionImageUrl(value.url);
+    const highResUrl = getHighResolutionImageUrl(value.url)
+    if (highResUrl !== '')
+      return highResUrl
+
+    return value.url
   }
 
-  return '';
+  return ''
 }
 
 export function transformToList(value: string | Record<string, string>) {
