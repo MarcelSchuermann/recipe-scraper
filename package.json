@@ -1,19 +1,11 @@
 {
-  "name": "@dimfu/recipe-scraper",
-  "version": "0.3.0",
+  "name": "recipe-scraper-ms",
+  "version": "0.3.1",
   "description": "Extract recipe data from the web effortlessly",
   "publishConfig": {
     "access": "public"
   },
   "license": "MIT",
-  "homepage": "https://github.com/dimfu/recipe-scraper",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/dimfu/recipe-scraper.git"
-  },
-  "bugs": {
-    "url": "https://github.com/dimfu/recipe-scraper/issues"
-  },
   "keywords": [
     "recipe",
     "food-recipe",
@@ -39,6 +31,15 @@
     "build": "pnpm run build-fast --dts-resolve",
     "prepublishOnly": "pnpm run build"
   },
+  "dependencies": {
+    "axios": "^1.4.0",
+    "cheerio": "1.0.0-rc.12",
+    "commander": "^11.0.0",
+    "iso8601-duration": "^2.1.1",
+    "jsonschema": "^1.4.1",
+    "microdata-node": "^2.0.0",
+    "schema-dts": "^1.1.2"
+  },
   "devDependencies": {
     "@antfu/eslint-config": "^0.39.4",
     "@types/node": "^20.2.5",
@@ -53,14 +54,5 @@
   },
   "lint-staged": {
     "*": "eslint --fix"
-  },
-  "dependencies": {
-    "axios": "^1.4.0",
-    "cheerio": "1.0.0-rc.12",
-    "commander": "^11.0.0",
-    "iso8601-duration": "^2.1.1",
-    "jsonschema": "^1.4.1",
-    "microdata-node": "^2.0.0",
-    "schema-dts": "^1.1.2"
   }
 }
