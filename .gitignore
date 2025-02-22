@@ -3,3 +3,4 @@ node_modules
 dist
 *.log
 package-lock.json
+recipe-scraper-ms.code-workspace

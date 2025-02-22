@@ -1,11 +1,15 @@
-import type { AxiosResponse } from 'axios'
+// import type { AxiosResponse } from 'axios'
 import * as cheerio from 'cheerio'
-import axios from 'axios'
+
+// import axios from 'axios'
 import { validate } from 'jsonschema'
 
-// @ts-expect-error - ...
 import microdata from 'microdata-node'
 import type { Recipe, WithContext } from 'schema-dts'
+import axios from 'axios'
+import { getRenderedHtml } from './getHtmlPuppeteer'
+
+// @ts-expect-error - ...
 import schema from './schema.json'
 import type { IRecipe, Options } from './types'
 import { isValidHttpUrl } from './utils'
@@ -18,6 +22,7 @@ interface WithGraph extends WithContext<Recipe> {
 const DEFAULT_OPTIONS = {
   maxRedirects: 5,
   timeout: 10000,
+  enableMLFallback: true,
 }
 
 function consolidateRecipeProperties(recipe: Record<string, any>): IRecipe {
@@ -88,7 +93,9 @@ export default async function getRecipeData(
     inputOptions = input
     siteUrl = input as string
   }
-  else { siteUrl = input }
+  else {
+    siteUrl = input
+  }
 
   const options = { ...DEFAULT_OPTIONS, ...inputOptions }
 
@@ -96,19 +103,10 @@ export default async function getRecipeData(
     throw new Error('Url must start with http:// or https://')
 
   try {
-    const response: AxiosResponse<string> = await axios.get(siteUrl, {
-      responseType: 'text',
-      headers: {
-        'Accept-Language': options.lang,
-      },
-      timeout: options.timeout,
-      maxRedirects: options.maxRedirects,
-    })
-    html = response.data
+    html = await getRenderedHtml(siteUrl)
   }
   catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
-
     if (options.html)
       html = options.html as string
     else
@@ -121,6 +119,9 @@ export default async function getRecipeData(
   const ogImage = $('meta[property="og:image"]').attr('content')
 
   try {
+    // Try to parse ld+json first
+    // eslint-disable-next-line no-console
+    console.log('Trying to parse ld+json', siteUrl)
     const tags = $('script[type="application/ld+json"]')
     if (tags.length > 0) {
       for (let i = 0; i < tags.length; i++) {
@@ -155,26 +156,113 @@ export default async function getRecipeData(
     }
   }
   catch {
+    // If we can't parse from ld+json, try microdata approach
+    // eslint-disable-next-line no-console
+    console.log('Trying to parse microdata', siteUrl)
     const data = microdata.toJson(html)
-    if (!data || !data.items || !data.items[0])
-      throw new Error('HTML tags provided has no valid recipe schema')
+    if (data && data.items && data.items[0]) {
+      const recipeData = Object.values(data.items).find((item: any) => item.type[0].includes('Recipe')) as Record<string, any>
+      if (!recipeData?.properties)
+        throw new Error('Recipe not found on page')
 
-    const recipeData = Object.values(data.items).find((item: any) => item.type[0].includes('Recipe')) as Record<string, any>
-    if (!recipeData?.properties)
-      throw new Error('Recipe not found on page')
+      recipe = recipeData.properties
+    }
+    else {
+      // FINAL fallback: attempt to extract using common selectors
+      const fallbackInstructions: string[] = []
+      // Try existing fallback: paragraphs in common containers
+      const instructionBlocks = $('div.jeg_food_recipe_instruction, article, main')
+      instructionBlocks.each((_, blockEl) => {
+        $(blockEl).find('p').each((__, pEl) => {
+          const txt = $(pEl).text().trim()
+          if (txt)
+            fallbackInstructions.push(txt)
+        })
+      })
+      // Additional heuristic: search for elements labeled as recipe instructions or ingredients
+      if (fallbackInstructions.length === 0) {
+        $('[itemprop="recipeInstructions"]').each((_, el) => {
+          const txt = $(el).text().trim()
+          if (txt)
+            fallbackInstructions.push(txt)
+        })
+      }
+      // Also try to extract ingredients if possible
+      const fallbackIngredients: string[] = []
+      $('[itemprop="recipeIngredient"]').each((_, el) => {
+        const txt = $(el).text().trim()
+        if (txt)
+          fallbackIngredients.push(txt)
+      })
+      if (fallbackInstructions.length === 0 && fallbackIngredients.length === 0)
+        throw new Error('HTML tags provided has no valid recipe schema')
 
-    recipe = recipeData.properties
+      // Construct minimal fallback recipe
+      recipe = {
+        '@type': 'Recipe',
+        'name': $('title').text() || 'Untitled',
+        'recipeInstructions': fallbackInstructions.length ? fallbackInstructions : undefined,
+        'recipeIngredient': fallbackIngredients.length ? fallbackIngredients : undefined,
+        'url': siteUrl, // include the URL to match the signature
+      }
+    }
   }
 
   const prettifiedRecipe = prettifyRecipe(recipe as Recipe, siteUrl, ogImage)
-  if (prettifiedRecipe !== undefined) {
-    const response = validate(prettifiedRecipe, schema)
+  let response = validate(prettifiedRecipe, schema)
+  if (!response.valid) {
+    console.warn('Validation errors:', response.errors.map(e => e.message))
+
+    const fallbackIngredients: string[] = []
+
+    // 1. Try the standard microdata selector
+    $('[itemprop="recipeIngredient"]').each((_, el) => {
+      const txt = $(el).text().trim()
+      if (txt)
+        fallbackIngredients.push(txt)
+    })
+
+    // 2. Look for elements with class names containing "ingredient" or "ingredients"
+    if (fallbackIngredients.length === 0) {
+      $('[class*="ingredient"], .ingredients').each((_, el) => {
+        $(el).find('li').each((__, li) => {
+          const txt = $(li).text().trim()
+          if (txt)
+            fallbackIngredients.push(txt)
+        })
+      })
+    }
+
+    // 3. Look for headings containing "zutaten" or "ingredients" and extract list items (ul/ol) in the following siblings
+    if (fallbackIngredients.length === 0) {
+      $('h2, h3').filter((i, el) => {
+        const headingText = $(el).text().toLowerCase()
+        return headingText.includes('zutaten') || headingText.includes('ingredients')
+      }).each((i, heading) => {
+        // Check for immediate sibling UL or OL elements until the next heading
+        $(heading).nextUntil('h2, h3', 'ul, ol').each((_, list) => {
+          $(list).find('li').each((__, li) => {
+            const txt = $(li).text().trim()
+            if (txt)
+              fallbackIngredients.push(txt)
+          })
+        })
+      })
+    }
+
+    if (!response.valid && options.enableMLFallback) {
+      console.warn('ML fallback triggered')
+      // Assume you have the page HTML in the variable "html"
+      const mlResponse = await axios.post('http://localhost:3000/extract', { html })
+      const mlRecipe = mlResponse.data
+      const mlPrettified = prettifyRecipe(mlRecipe as Recipe, siteUrl, ogImage)
+      response = validate(mlPrettified, schema)
+      if (response.valid)
+        return mlPrettified
+    }
+
     if (!response.valid)
       throw new Error(`Recipe is not valid: ${response.errors.map(e => e.message).join(', ')}`)
-
-    return prettifiedRecipe
   }
-  else {
-    throw new Error('Recipe data could not be prettified')
-  }
+  return prettifiedRecipe
 }

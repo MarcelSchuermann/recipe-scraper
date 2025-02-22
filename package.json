@@ -38,6 +38,7 @@
     "iso8601-duration": "^2.1.1",
     "jsonschema": "^1.4.1",
     "microdata-node": "^2.0.0",
+    "puppeteer": "^24.2.1",
     "schema-dts": "^1.1.2"
   },
   "devDependencies": {

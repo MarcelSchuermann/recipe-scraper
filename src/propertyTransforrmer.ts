@@ -9,7 +9,7 @@ interface ImageObject {
 }
 
 // Function to adjust image URL dimensions
-function getHighResolutionImageUrl(url: string): string {
+function getHighResolutionImageUrl(_url: string): string {
   // // Regular expression to match the dimension parameters in the URL
   // const dimensionPattern = /(v-w-\d+-h-\d+)/;
   // const matches = url.match(dimensionPattern);
@@ -154,21 +154,34 @@ export function transformToCleanString(value: string) {
 export function transformInstructions(value: string | Record<string, any>) {
   if (typeof value === 'string') {
     const cleanedValue = cleanString(value)
+
+    // More robust paragraph detection: match <p>...</p> blocks
+    const paragraphMatches = cleanedValue.match(/<p[^>]*>(.*?)<\/p>/gi)
+    if (paragraphMatches && paragraphMatches.length) {
+      return paragraphMatches
+        .map(p => p.replace(/<[^>]+>/g, '').trim())
+        .filter(Boolean)
+    }
+
+    // Fallback: if user has ".,", split by that
     if (cleanedValue.includes('.,'))
       return cleanedValue.split('.,').map(item => item.trim())
 
+    // Otherwise return as single instruction
     return [cleanedValue]
   }
 
+  // If it's an array
   if (Array.isArray(value)) {
     const firstItem = value[0]
+    // If it's an array of strings
     if (typeof firstItem === 'string')
       return value.map(item => cleanString(item))
 
+    // If it's an array of objects with a text property
     return value.map((item) => {
       if (item.text)
         return cleanString(item.text)
-
       return undefined
     })
   }
@@ -185,27 +198,31 @@ function cleanIngredientAmounts(line: string) {
     .trim()
 }
 
-export function transformIngredients(value: Record<string, any>): string[] {
-  if (value && typeof value[0] === 'string')
+export function transformIngredients(value: any): string[] {
+  if (Array.isArray(value) && typeof value[0] === 'string')
     return value.map((item: any) => cleanIngredientAmounts(item))
 
-  const mappedItems = [] as Array<any>
+  if (typeof value === 'string')
+    return [cleanIngredientAmounts(value)]
 
-  Object.entries(value).forEach(([, item]: any) => {
-    if (item.properties) {
-      const { name, amount } = item.properties
-      if (name || amount) {
-        const _name = name && name[0]
-        const _amount = amount && amount[0]
-        const singleLine = _amount ? `${_amount} ${_name}` : _name
-        mappedItems.push(cleanIngredientAmounts(singleLine))
+  const mappedItems: string[] = []
+
+  if (value && typeof value === 'object') {
+    Object.entries(value).forEach(([, item]: any) => {
+      if (item.properties) {
+        const { name, amount } = item.properties
+        if (name || amount) {
+          const _name = Array.isArray(name) ? name[0] : name
+          const _amount = Array.isArray(amount) ? amount[0] : amount
+          const singleLine = _amount ? `${_amount} ${_name}` : _name
+          if (singleLine)
+            mappedItems.push(cleanIngredientAmounts(singleLine))
+        }
       }
-    }
-  })
-  if (mappedItems.length)
-    return mappedItems
+    })
+  }
 
-  return []
+  return mappedItems
 }
 
 const propertyTransformerMap = {
